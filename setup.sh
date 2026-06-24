@@ -17,4 +17,7 @@ echo "[setup] llama-server at: $(find llamacpp -name 'llama-server' -type f | he
 echo "[setup] pre-downloading NuExtract-1.5-tiny GGUF (~0.5 GB)..."
 python -c "from huggingface_hub import hf_hub_download; hf_hub_download('QuantFactory/NuExtract-1.5-tiny-GGUF','NuExtract-1.5-tiny.Q4_K_M.gguf')"
 
+echo "[setup] pre-downloading the embedder for the vendor view (bge-small ONNX)..."
+python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')" || echo "  (will download on first vendor request)"
+
 echo "[setup] done.  Next:  bash start.sh"

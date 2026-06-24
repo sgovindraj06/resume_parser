@@ -19,6 +19,8 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
+import vendor  # vendor-side JD-relevance masked preview
+
 LLAMA = "http://127.0.0.1:8080"
 STR = {"type": "string"}
 
@@ -168,7 +170,7 @@ pre{background:#0b1020;color:#cbd5e1;padding:12px;border-radius:10px;overflow:au
 .reveal{background:#f59e0b;color:#111;border:0;border-radius:7px;padding:3px 11px;font-size:12px;font-weight:700;cursor:pointer;margin-left:8px}
 .hint{font-size:11px;color:#9a3412;margin-top:6px}</style></head><body>
 <header><h1>Smart Résumé Extraction — NuExtract-1.5-tiny</h1>
-<p>Local generative model · GitHub Codespaces (CPU) · no paid API · two modes</p></header>
+<p>Local generative model · GitHub Codespaces (CPU) · no paid API · two modes · <a href="/vendor" style="color:#7dd3fc">🏢 Vendor JD-match view →</a></p></header>
 <main>
 <div class=drop onclick="document.getElementById('f').click()">
   <input type=file id=f accept=.pdf style=display:none>
@@ -232,6 +234,55 @@ async def parse_resume(file: UploadFile = File(...), mode: str = Form("essential
     raw = extract(text, mode)
     return {"engine": "nuextract-1.5-tiny", "mode": mode,
             "elapsed_ms": int((time.time() - t) * 1000), "raw": raw}
+
+
+VENDOR_HTML = """<!doctype html><html><head><meta charset=utf-8><title>Vendor — JD match</title>
+<style>body{font-family:system-ui,Segoe UI,sans-serif;background:#f5f7fb;color:#1f2937;margin:0}
+header{background:#0b1020;color:#fff;padding:16px 24px}header h1{margin:0;font-size:17px}
+header a{color:#7dd3fc;font-size:13px;text-decoration:none}main{max-width:1200px;margin:0 auto;padding:24px}
+textarea{width:100%;min-height:90px;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}
+.btn{background:#0d9488;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-weight:700;cursor:pointer;margin-top:10px}
+.btn:disabled{opacity:.6}.row{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px}
+.col{flex:1;min-width:330px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px}
+.col h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;color:#6b7280}
+.col img{width:100%;border:1px solid #eee;border-radius:6px}.muted{color:#6b7280;font-size:13px}</style></head><body>
+<header><h1>🏢 Vendor — JD relevance preview</h1>
+<div><a href="/">← Trainer extraction</a> · masked résumé with JD-matched skills boxed (semantic, no hardcoding)</div></header>
+<main>
+<label class=muted>Paste the Job Description:</label>
+<textarea id=jd placeholder="e.g. Looking for a Data Scientist with cloud, deep learning, computer vision and NLP experience to build ML pipelines..."></textarea>
+<input type=file id=f accept=.pdf style=margin-top:10px><span class=muted id=fn></span><br>
+<button class=btn id=go onclick="vgo()">Match &amp; mask</button>
+<div id=out></div></main>
+<script>
+const $=i=>document.getElementById(i);
+$('f').onchange=e=>{$('fn').textContent=e.target.files[0]?' '+e.target.files[0].name:''};
+async function vgo(){
+ const f=$('f').files[0];if(!f){alert('Choose a résumé PDF');return}
+ const b=$('go');b.disabled=true;b.textContent='Matching… (~5s)';$('out').innerHTML='';
+ try{const fd=new FormData();fd.append('file',f);fd.append('jd',$('jd').value);
+  const d=await(await fetch('/vendor-preview',{method:'POST',body:fd})).json();
+  let h='<p class=muted>'+d.matched+' JD-relevant terms highlighted · '+(d.elapsed_ms/1000).toFixed(1)+'s · contact blurred</p>';
+  d.pages.forEach((p,i)=>{h+='<div class=row><div class=col><h3>Original (page '+(i+1)+')</h3><img src="'+p.original+'"></div>'
+   +'<div class=col><h3>Masked + JD-highlighted</h3><img src="'+p.masked+'"></div></div>'});
+  $('out').innerHTML=h;
+ }catch(e){$('out').innerHTML='<p>Error: '+e+'</p>'}
+ finally{b.disabled=false;b.textContent='Match & mask'}}
+</script></body></html>"""
+
+
+@app.get("/vendor", response_class=HTMLResponse)
+def vendor_page():
+    return VENDOR_HTML
+
+
+@app.post("/vendor-preview")
+def vendor_preview(file: UploadFile = File(...), jd: str = Form("")):
+    data = file.file.read()
+    t = time.time()
+    res = vendor.make_preview(data, jd.strip() or "skills experience")
+    res["elapsed_ms"] = int((time.time() - t) * 1000)
+    return res
 
 
 if __name__ == "__main__":

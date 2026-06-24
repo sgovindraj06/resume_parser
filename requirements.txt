@@ -3,3 +3,6 @@ uvicorn[standard]
 pymupdf
 huggingface_hub
 python-multipart
+pillow
+numpy
+fastembed
