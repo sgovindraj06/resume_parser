@@ -1,13 +1,12 @@
-"""Vendor side — JD-relevance preview (SELECTIVE + CATEGORICAL).
+"""Vendor side — JD-relevance preview (selective, SINGLE color).
 
-Renders a résumé page, BLURS contact (email/phone/LinkedIn), and draws thin boxes around
-the résumé terms most related to the JD. The JD is reduced to a few KEY concepts
-(categories); each category gets ONE color; for each category only the TOP-K best-matching
-résumé terms are boxed -> selective, grouped by color (not a wall of random boxes).
-Matching = sentence-embedding cosine (fastembed bge-small) — learned meaning, NO hardcoding.
+Renders a résumé page, BLURS contact (email/phone/LinkedIn), and boxes the résumé
+terms most semantically related to the JD (top-N overall). One highlight color — no
+category grouping for now (kept simple + accurate; grouping can be re-added later only
+if it can be made reliable). Matching = sentence-embedding cosine (fastembed bge-small),
+learned meaning, NO hardcoding.
 
-make_preview(pdf_bytes, jd) -> {"pages":[{"original","masked"}], "matched":N,
-                                "categories":[{"name","color"}]}
+make_preview(pdf_bytes, jd) -> {"pages":[{"original","masked"}], "matched":N, "categories":[]}
 """
 import base64
 import io
@@ -18,13 +17,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ZOOM = 2.0
-K_PER_CATEGORY = 10      # at most this many boxes per JD concept
-FLOOR = 0.62             # min similarity to box at all
-MAX_CATEGORIES = 5       # few, clean concept groups (keep <= len(PALETTE))
-PALETTE = [
-    (234, 88, 12), (37, 99, 235), (22, 163, 74), (147, 51, 234), (13, 148, 136), (219, 39, 119),
-    (202, 138, 4), (8, 145, 178), (190, 24, 93), (101, 163, 13), (124, 58, 237), (217, 70, 239),
-]
+FLOOR = 0.62             # min similarity to highlight a term
+MAX_BOXES = 45           # cap total highlights per page (selective, not a wall)
+HIGHLIGHT = (37, 99, 235)  # one color for all JD-relevant terms
 STOP = set("a an the and or for with in of to on at as by is are be this that from we you our will need "
            "experience strong looking build using used work years role into it its their have has i am my "
            "me also such not but other which when where who can more most very".split())
@@ -46,28 +41,19 @@ def _vecs(texts):
     return a
 
 
-def _jd_categories(jd):
+def _jd_terms(jd):
+    """Skill-like phrases from the JD (1-4 words) used as relevance reference vectors."""
     chunks = re.split(r"[,;:\n.|/()]|\band\b|\bwith\b|\bincluding\b|\bsuch as\b|\bor\b|"
                       r"\bin\b|\bof\b|\bfor\b|\bto\b|\busing\b|\bexperience\b|\bexperienced\b",
                       jd, flags=re.I)
-    concepts = []
+    terms = []
     for c in chunks:
         words = [w for w in re.findall(r"[A-Za-z][A-Za-z+#.]*", c) if w.lower() not in STOP]
-        # skills are short phrases (1-4 words), not whole sentence fragments
         if 1 <= len(words) <= 4:
             phrase = " ".join(words).strip()
             if len(re.sub(r"[^a-z]", "", phrase.lower())) >= 3:
-                concepts.append(phrase)
-    concepts = list(dict.fromkeys(concepts)) or ["skill"]
-    cv = _vecs(concepts)
-    cats, catv = [], []
-    for t, v in zip(concepts, cv):
-        # merge only near-DUPLICATE concepts; keep genuinely distinct ones separate
-        if all(float(np.dot(v, x)) < 0.78 for x in catv):
-            cats.append(t); catv.append(v)
-        if len(cats) >= MAX_CATEGORIES:
-            break
-    return cats, np.array(catv)
+                terms.append(phrase)
+    return list(dict.fromkeys(terms)) or ["skill"]
 
 
 def _candidates(words):
@@ -98,9 +84,7 @@ def _b64(img):
 
 def make_preview(pdf_bytes, jd, max_pages=2):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    cats, catv = _jd_categories(jd)
-    categories = [{"name": c, "color": "rgb(%d,%d,%d)" % PALETTE[i % len(PALETTE)]}
-                  for i, c in enumerate(cats)]
+    jv = _vecs(_jd_terms(jd))
     pages, total = [], 0
 
     for pno in range(min(len(doc), max_pages)):
@@ -124,24 +108,17 @@ def make_preview(pdf_bytes, jd, max_pages=2):
                 if bb[2] > bb[0] and bb[3] > bb[1]:
                     img.paste(img.crop(bb).filter(ImageFilter.GaussianBlur(8)), (bb[0], bb[1]))
 
-        # selective top-K per category
+        # selective: top-N résumé terms most related to the JD (single color)
         cands = _candidates(words)
         terms = list(cands.keys())
-        chosen = {}
+        chosen = []
         if terms:
-            sims = _vecs(terms) @ catv.T
-            for ci in range(len(cats)):
-                col = sims[:, ci]
-                for ti in np.argsort(-col)[:K_PER_CATEGORY]:
-                    if col[ti] < FLOOR:
-                        break
-                    t = terms[ti]
-                    if t not in chosen or col[ti] > chosen[t][1]:
-                        chosen[t] = (ci, float(col[ti]))
+            best = (_vecs(terms) @ jv.T).max(axis=1)
+            chosen = [terms[i] for i in np.argsort(-best) if best[i] >= FLOOR][:MAX_BOXES]
 
         draw = ImageDraw.Draw(img)
         drawn = set()
-        for t, (ci, _) in chosen.items():
+        for t in chosen:
             r = cands[t]
             key = (round(r.x0), round(r.y0), round(r.x1), round(r.y1))
             if key in drawn:
@@ -149,8 +126,8 @@ def make_preview(pdf_bytes, jd, max_pages=2):
             drawn.add(key)
             total += 1
             draw.rectangle([r.x0 * ZOOM - 1, r.y0 * ZOOM - 1, r.x1 * ZOOM + 1, r.y1 * ZOOM + 1],
-                           outline=PALETTE[ci % len(PALETTE)], width=2)
+                           outline=HIGHLIGHT, width=2)
 
         pages.append({"original": _b64(orig), "masked": _b64(img)})
 
-    return {"pages": pages, "matched": total, "categories": categories}
+    return {"pages": pages, "matched": total, "categories": []}
