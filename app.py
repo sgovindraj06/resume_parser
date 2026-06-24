@@ -263,6 +263,7 @@ async function vgo(){
  try{const fd=new FormData();fd.append('file',f);fd.append('jd',$('jd').value);
   const d=await(await fetch('/vendor-preview',{method:'POST',body:fd})).json();
   let h='<p class=muted>'+d.matched+' JD-relevant terms highlighted · '+(d.elapsed_ms/1000).toFixed(1)+'s · contact blurred</p>';
+  h+='<div style="margin:8px 0 4px">'+(d.categories||[]).map(c=>'<span style="display:inline-block;margin:0 12px 6px 0;font-size:13px"><span style="display:inline-block;width:13px;height:13px;border:2px solid '+c.color+';border-radius:3px;vertical-align:middle;margin-right:5px"></span>'+c.name+'</span>').join('')+'</div>';
   d.pages.forEach((p,i)=>{h+='<div class=row><div class=col><h3>Original (page '+(i+1)+')</h3><img src="'+p.original+'"></div>'
    +'<div class=col><h3>Masked + JD-highlighted</h3><img src="'+p.masked+'"></div></div>'});
   $('out').innerHTML=h;
