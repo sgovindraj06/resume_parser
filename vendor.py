@@ -20,7 +20,7 @@ from PIL import Image, ImageDraw, ImageFilter
 ZOOM = 2.0
 K_PER_CATEGORY = 10      # at most this many boxes per JD concept
 FLOOR = 0.62             # min similarity to box at all
-MAX_CATEGORIES = 10      # keep <= len(PALETTE) so each concept has a distinct color
+MAX_CATEGORIES = 5       # few, clean concept groups (keep <= len(PALETTE))
 PALETTE = [
     (234, 88, 12), (37, 99, 235), (22, 163, 74), (147, 51, 234), (13, 148, 136), (219, 39, 119),
     (202, 138, 4), (8, 145, 178), (190, 24, 93), (101, 163, 13), (124, 58, 237), (217, 70, 239),
@@ -47,18 +47,23 @@ def _vecs(texts):
 
 
 def _jd_categories(jd):
-    chunks = re.split(r"[,;\n.|/()]|\band\b|\bwith\b|\bincluding\b|\bsuch as\b|\bor\b", jd, flags=re.I)
+    chunks = re.split(r"[,;:\n.|/()]|\band\b|\bwith\b|\bincluding\b|\bsuch as\b|\bor\b|"
+                      r"\bin\b|\bof\b|\bfor\b|\bto\b|\busing\b|\bexperience\b|\bexperienced\b",
+                      jd, flags=re.I)
     concepts = []
     for c in chunks:
         words = [w for w in re.findall(r"[A-Za-z][A-Za-z+#.]*", c) if w.lower() not in STOP]
-        phrase = " ".join(words).strip()
-        if len(re.sub(r"[^a-z]", "", phrase.lower())) >= 3:
-            concepts.append(phrase)
+        # skills are short phrases (1-4 words), not whole sentence fragments
+        if 1 <= len(words) <= 4:
+            phrase = " ".join(words).strip()
+            if len(re.sub(r"[^a-z]", "", phrase.lower())) >= 3:
+                concepts.append(phrase)
     concepts = list(dict.fromkeys(concepts)) or ["skill"]
     cv = _vecs(concepts)
     cats, catv = [], []
     for t, v in zip(concepts, cv):
-        if all(float(np.dot(v, x)) < 0.85 for x in catv):
+        # merge only near-DUPLICATE concepts; keep genuinely distinct ones separate
+        if all(float(np.dot(v, x)) < 0.78 for x in catv):
             cats.append(t); catv.append(v)
         if len(cats) >= MAX_CATEGORIES:
             break
