@@ -38,10 +38,46 @@ def _llama_ready(timeout: float = 2.0) -> bool:
         return False
 
 
+def _loads_salvage(s: str):
+    """Parse JSON; if the model truncated/looped (unclosed structure), recover the
+    largest valid prefix by trimming to a '}' boundary and closing open brackets."""
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    for end in range(len(s) - 1, 0, -1):
+        if s[end] == "}":
+            frag = s[: end + 1]
+            cand = frag + "]" * max(0, frag.count("[") - frag.count("]")) \
+                        + "}" * max(0, frag.count("{") - frag.count("}"))
+            try:
+                return json.loads(cand)
+            except Exception:
+                continue
+    return None
+
+
+def _dedup(d: dict) -> dict:
+    """Small models sometimes repeat list items — drop exact duplicates."""
+    for key in ("experience", "education", "projects", "certifications"):
+        items = d.get(key)
+        if isinstance(items, list):
+            seen, out = set(), []
+            for it in items:
+                k = json.dumps(it, sort_keys=True)
+                if k not in seen:
+                    seen.add(k)
+                    out.append(it)
+            d[key] = out
+    return d
+
+
 def extract(text: str) -> dict:
     prompt = f"<|input|>\n### Template:\n{TEMPLATE}\n### Text:\n{text}\n\n<|output|>\n"
     payload = {
-        "prompt": prompt, "n_predict": 1024, "temperature": 0.0, "cache_prompt": True,
+        "prompt": prompt, "n_predict": 4096, "temperature": 0.0, "cache_prompt": True,
+        # repetition controls — stop the 0.5B model looping the same entry forever
+        "repeat_penalty": 1.3, "repeat_last_n": 256, "frequency_penalty": 0.5,
         "stop": ["<|end-output|>", "<|input|>", "<|end|>"],
     }
     req = urllib.request.Request(
@@ -50,10 +86,10 @@ def extract(text: str) -> dict:
     )
     out = json.loads(urllib.request.urlopen(req, timeout=600).read().decode("utf-8")).get("content", "")
     s = out.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    try:
-        return json.loads(s)
-    except Exception:
-        return {"_raw": out, "_parse_error": True}
+    parsed = _loads_salvage(s)
+    if isinstance(parsed, dict):
+        return _dedup(parsed)
+    return {"_raw": out, "_parse_error": True}
 
 
 HTML = """<!doctype html><html><head><meta charset=utf-8><title>Résumé Autofill — NuExtract-tiny</title>
@@ -85,7 +121,9 @@ async function go(){if(!chosen){alert('Choose a PDF');return}
  const b=$('go');b.disabled=true;b.textContent='Parsing… (~1 min)';$('out').innerHTML='';
  try{const fd=new FormData();fd.append('file',chosen);
   const d=await(await fetch('/parse-resume',{method:'POST',body:fd})).json();
-  const r=d.raw||{},ed=(r.education||[{}])[0]||{};
+  const r=d.raw||{};
+  if(r._parse_error){$('out').innerHTML='<div class=card><b>Could not parse the model output cleanly — please try again.</b><pre>'+(r._raw||'')+'</pre></div>';return}
+  const ed=(r.education||[{}])[0]||{};
   const chips=a=>(a||[]).map(s=>'<span class=chip>'+(typeof s==='string'?s:(s.name||''))+'</span>').join('')||'<span style=color:#6b7280>none</span>';
   $('out').innerHTML='<div class=card><span class=t>'+(d.elapsed_ms/1000).toFixed(1)+'s</span><h3>Contact</h3>'
    +inp('Name',r.name)+inp('Email',r.email)+inp('Phone',r.phone)+inp('LinkedIn',r.linkedin)
