@@ -38,6 +38,30 @@ def _llama_ready(timeout: float = 2.0) -> bool:
         return False
 
 
+# Constrains the model to VALID JSON; maxItems caps arrays so the 0.5B physically
+# cannot loop the same entry forever (the cause of the unparseable output).
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"}, "email": {"type": "string"},
+        "phone": {"type": "string"}, "location": {"type": "string"},
+        "linkedin": {"type": "string"},
+        "education": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+            "institution": {"type": "string"}, "degree": {"type": "string"},
+            "field": {"type": "string"}, "grade": {"type": "string"}}}},
+        "experience": {"type": "array", "maxItems": 12, "items": {"type": "object", "properties": {
+            "company": {"type": "string"}, "title": {"type": "string"},
+            "start_date": {"type": "string"}, "end_date": {"type": "string"}}}},
+        "projects": {"type": "array", "maxItems": 15, "items": {"type": "object", "properties": {
+            "name": {"type": "string"}}}},
+        "certifications": {"type": "array", "maxItems": 15, "items": {"type": "object", "properties": {
+            "name": {"type": "string"}, "issuer": {"type": "string"}}}},
+        "skills": {"type": "array", "maxItems": 40, "items": {"type": "string"}},
+        "languages": {"type": "array", "maxItems": 10, "items": {"type": "string"}},
+    },
+}
+
+
 def _loads_salvage(s: str):
     """Parse JSON; if the model truncated/looped (unclosed structure), recover the
     largest valid prefix by trimming to a '}' boundary and closing open brackets."""
@@ -76,8 +100,8 @@ def extract(text: str) -> dict:
     prompt = f"<|input|>\n### Template:\n{TEMPLATE}\n### Text:\n{text}\n\n<|output|>\n"
     payload = {
         "prompt": prompt, "n_predict": 4096, "temperature": 0.0, "cache_prompt": True,
-        # repetition controls — stop the 0.5B model looping the same entry forever
-        "repeat_penalty": 1.3, "repeat_last_n": 256, "frequency_penalty": 0.5,
+        # json_schema forces VALID JSON; maxItems caps arrays so the 0.5B can't loop forever
+        "json_schema": SCHEMA,
         "stop": ["<|end-output|>", "<|input|>", "<|end|>"],
     }
     req = urllib.request.Request(
