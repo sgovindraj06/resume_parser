@@ -281,8 +281,18 @@ def vendor_page():
 def vendor_preview(file: UploadFile = File(...), jd: str = Form("")):
     data = file.file.read()
     t = time.time()
-    res = vendor.make_preview(data, jd.strip() or "skills experience")
+    # 1) extract the REAL skills/tech (so we box only skills, never random words)
+    text = "\n".join(p.get_text() for p in fitz.open(stream=data, filetype="pdf"))
+    parsed = extract(text, "essentials")
+    terms = list(parsed.get("skills") or [])
+    terms += [e.get("title", "") for e in (parsed.get("experience") or []) if isinstance(e, dict)]
+    for p in (parsed.get("projects") or []):
+        if isinstance(p, dict):
+            terms += list(p.get("technologies") or [])
+    # 2) box them (JD-filtered if a JD is given), blur contact
+    res = vendor.make_preview(data, terms, jd.strip())
     res["elapsed_ms"] = int((time.time() - t) * 1000)
+    res["skills_used"] = terms
     return res
 
 

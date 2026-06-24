@@ -1,12 +1,11 @@
-"""Vendor side — JD-relevance preview (selective, SINGLE color).
+"""Vendor side — JD-relevance preview (ACCURATE: box only real skills).
 
-Renders a résumé page, BLURS contact (email/phone/LinkedIn), and boxes the résumé
-terms most semantically related to the JD (top-N overall). One highlight color — no
-category grouping for now (kept simple + accurate; grouping can be re-added later only
-if it can be made reliable). Matching = sentence-embedding cosine (fastembed bge-small),
-learned meaning, NO hardcoding.
+Boxes only the terms the model EXTRACTED as skills/technologies (passed in by the
+caller), found at every occurrence on the page — so it never boxes random/filler words.
+If a JD is given, keep only the extracted skills semantically related to it (fastembed
+bge-small, learned meaning, NO hardcoding); otherwise box all of them. Contact is blurred.
 
-make_preview(pdf_bytes, jd) -> {"pages":[{"original","masked"}], "matched":N, "categories":[]}
+make_preview(pdf_bytes, skill_terms, jd="") -> {"pages":[{"original","masked"}], "matched":N, "categories":[]}
 """
 import base64
 import io
@@ -17,12 +16,10 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ZOOM = 2.0
-FLOOR = 0.62             # min similarity to highlight a term
-MAX_BOXES = 45           # cap total highlights per page (selective, not a wall)
-HIGHLIGHT = (37, 99, 235)  # one color for all JD-relevant terms
+FLOOR = 0.60             # min similarity for a skill to count as JD-relevant
+HIGHLIGHT = (37, 99, 235)
 STOP = set("a an the and or for with in of to on at as by is are be this that from we you our will need "
-           "experience strong looking build using used work years role into it its their have has i am my "
-           "me also such not but other which when where who can more most very".split())
+           "experience strong looking build using used work years role into it its their have has".split())
 
 _emb = None
 
@@ -42,38 +39,31 @@ def _vecs(texts):
 
 
 def _jd_terms(jd):
-    """Skill-like phrases from the JD (1-4 words) used as relevance reference vectors."""
-    chunks = re.split(r"[,;:\n.|/()]|\band\b|\bwith\b|\bincluding\b|\bsuch as\b|\bor\b|"
-                      r"\bin\b|\bof\b|\bfor\b|\bto\b|\busing\b|\bexperience\b|\bexperienced\b",
-                      jd, flags=re.I)
-    terms = []
+    chunks = re.split(r"[,;:\n.|/()]|\band\b|\bwith\b|\bor\b|\bin\b|\bof\b|\bfor\b|\bto\b|\busing\b", jd, flags=re.I)
+    out = []
     for c in chunks:
         words = [w for w in re.findall(r"[A-Za-z][A-Za-z+#.]*", c) if w.lower() not in STOP]
         if 1 <= len(words) <= 4:
-            phrase = " ".join(words).strip()
-            if len(re.sub(r"[^a-z]", "", phrase.lower())) >= 3:
-                terms.append(phrase)
-    return list(dict.fromkeys(terms)) or ["skill"]
+            p = " ".join(words).strip()
+            if len(re.sub(r"[^a-z]", "", p.lower())) >= 3:
+                out.append(p)
+    return list(dict.fromkeys(out))
 
 
-def _candidates(words):
-    cands = {}
-
-    def add(text, rect):
-        if len(re.sub(r"[^a-z0-9+#]", "", text.lower())) >= 3:
-            cands.setdefault(text.strip(), rect)
-
-    for w in words:
-        if w[4].lower() not in STOP:
-            add(w[4], fitz.Rect(w[0], w[1], w[2], w[3]))
-    for n in (2, 3):
-        for i in range(len(words) - n + 1):
-            grp = words[i:i + n]
-            if grp[0][5] == grp[-1][5] and grp[0][6] == grp[-1][6]:
-                if any(g[4].lower() not in STOP for g in grp):
-                    add(" ".join(g[4] for g in grp),
-                        fitz.Rect(grp[0][0], grp[0][1], grp[-1][2], grp[-1][3]))
-    return cands
+def _select(skill_terms, jd):
+    """Clean the extracted skills; if a JD is given, keep only JD-relevant ones."""
+    terms = []
+    for t in skill_terms:
+        t = (t or "").strip()
+        if len(re.sub(r"[^a-z0-9+#]", "", t.lower())) >= 2 and t.lower() not in STOP:
+            terms.append(t)
+    terms = list(dict.fromkeys(terms))
+    jts = _jd_terms(jd) if jd and jd.strip() else []
+    if not terms or not jts:
+        return terms  # no JD -> box all real skills
+    best = (_vecs(terms) @ _vecs(jts).T).max(axis=1)
+    keep = [t for t, b in zip(terms, best) if b >= FLOOR]
+    return keep or terms  # if JD matched nothing, fall back to all skills
 
 
 def _b64(img):
@@ -82,9 +72,9 @@ def _b64(img):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def make_preview(pdf_bytes, jd, max_pages=2):
+def make_preview(pdf_bytes, skill_terms, jd="", max_pages=2):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    jv = _vecs(_jd_terms(jd))
+    terms = _select(list(skill_terms or []), jd)
     pages, total = [], 0
 
     for pno in range(min(len(doc), max_pages)):
@@ -108,25 +98,22 @@ def make_preview(pdf_bytes, jd, max_pages=2):
                 if bb[2] > bb[0] and bb[3] > bb[1]:
                     img.paste(img.crop(bb).filter(ImageFilter.GaussianBlur(8)), (bb[0], bb[1]))
 
-        # selective: top-N résumé terms most related to the JD (single color)
-        cands = _candidates(words)
-        terms = list(cands.keys())
-        chosen = []
-        if terms:
-            best = (_vecs(terms) @ jv.T).max(axis=1)
-            chosen = [terms[i] for i in np.argsort(-best) if best[i] >= FLOOR][:MAX_BOXES]
-
+        # box every occurrence of each real (extracted) skill
         draw = ImageDraw.Draw(img)
         drawn = set()
-        for t in chosen:
-            r = cands[t]
-            key = (round(r.x0), round(r.y0), round(r.x1), round(r.y1))
-            if key in drawn:
+        for term in terms:
+            try:
+                rects = page.search_for(term)
+            except Exception:
                 continue
-            drawn.add(key)
-            total += 1
-            draw.rectangle([r.x0 * ZOOM - 1, r.y0 * ZOOM - 1, r.x1 * ZOOM + 1, r.y1 * ZOOM + 1],
-                           outline=HIGHLIGHT, width=2)
+            for r in rects:
+                key = (round(r.x0), round(r.y0), round(r.x1), round(r.y1))
+                if key in drawn:
+                    continue
+                drawn.add(key)
+                total += 1
+                draw.rectangle([r.x0 * ZOOM - 1, r.y0 * ZOOM - 1, r.x1 * ZOOM + 1, r.y1 * ZOOM + 1],
+                               outline=HIGHLIGHT, width=2)
 
         pages.append({"original": _b64(orig), "masked": _b64(img)})
 
