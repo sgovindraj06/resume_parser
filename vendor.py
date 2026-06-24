@@ -18,10 +18,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ZOOM = 2.0
-K_PER_CATEGORY = 8       # at most this many boxes per JD concept
+K_PER_CATEGORY = 10      # at most this many boxes per JD concept
 FLOOR = 0.62             # min similarity to box at all
-MAX_CATEGORIES = 6
-PALETTE = [(234, 88, 12), (37, 99, 235), (22, 163, 74), (147, 51, 234), (13, 148, 136), (219, 39, 119)]
+MAX_CATEGORIES = 10      # keep <= len(PALETTE) so each concept has a distinct color
+PALETTE = [
+    (234, 88, 12), (37, 99, 235), (22, 163, 74), (147, 51, 234), (13, 148, 136), (219, 39, 119),
+    (202, 138, 4), (8, 145, 178), (190, 24, 93), (101, 163, 13), (124, 58, 237), (217, 70, 239),
+]
 STOP = set("a an the and or for with in of to on at as by is are be this that from we you our will need "
            "experience strong looking build using used work years role into it its their have has i am my "
            "me also such not but other which when where who can more most very".split())
@@ -91,7 +94,8 @@ def _b64(img):
 def make_preview(pdf_bytes, jd, max_pages=2):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     cats, catv = _jd_categories(jd)
-    categories = [{"name": c, "color": "rgb(%d,%d,%d)" % PALETTE[i]} for i, c in enumerate(cats)]
+    categories = [{"name": c, "color": "rgb(%d,%d,%d)" % PALETTE[i % len(PALETTE)]}
+                  for i, c in enumerate(cats)]
     pages, total = [], 0
 
     for pno in range(min(len(doc), max_pages)):
@@ -140,7 +144,7 @@ def make_preview(pdf_bytes, jd, max_pages=2):
             drawn.add(key)
             total += 1
             draw.rectangle([r.x0 * ZOOM - 1, r.y0 * ZOOM - 1, r.x1 * ZOOM + 1, r.y1 * ZOOM + 1],
-                           outline=PALETTE[ci], width=2)
+                           outline=PALETTE[ci % len(PALETTE)], width=2)
 
         pages.append({"original": _b64(orig), "masked": _b64(img)})
 
