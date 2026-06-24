@@ -162,7 +162,11 @@ pre{background:#0b1020;color:#cbd5e1;padding:12px;border-radius:10px;overflow:au
 .t{float:right;font-size:12px;color:#0d9488;font-weight:700}h3{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin:14px 0 8px}
 .seg{display:inline-flex;border:1px solid #cbd5e1;border-radius:999px;overflow:hidden;margin-top:10px}
 .seg button{border:0;background:#fff;padding:7px 16px;font-weight:600;cursor:pointer;font-size:13px;color:#6b7280}
-.seg button.on{background:#0d9488;color:#fff}</style></head><body>
+.seg button.on{background:#0d9488;color:#fff}
+.masked{filter:blur(6px);user-select:none;pointer-events:none;transition:filter .25s}
+.masked.revealed{filter:none;user-select:auto;pointer-events:auto}
+.reveal{background:#f59e0b;color:#111;border:0;border-radius:7px;padding:3px 11px;font-size:12px;font-weight:700;cursor:pointer;margin-left:8px}
+.hint{font-size:11px;color:#9a3412;margin-top:6px}</style></head><body>
 <header><h1>Smart Résumé Extraction — NuExtract-1.5-tiny</h1>
 <p>Local generative model · GitHub Codespaces (CPU) · no paid API · two modes</p></header>
 <main>
@@ -190,14 +194,17 @@ async function go(){if(!chosen){alert('Choose a PDF');return}
   if(r._parse_error){$('out').innerHTML='<div class=card><b>Could not parse the model output cleanly — please try again.</b><pre>'+(r._raw||'')+'</pre></div>';return}
   const ed=(r.education||[{}])[0]||{};
   const chips=a=>(a||[]).map(s=>'<span class=chip>'+(typeof s==='string'?s:(s.name||s.title||''))+'</span>').join('')||'<span style=color:#6b7280>none</span>';
-  $('out').innerHTML='<div class=card><span class=t>'+d.mode+' · '+(d.elapsed_ms/1000).toFixed(1)+'s</span><h3>Contact</h3>'
-   +inp('Name',r.name)+inp('Email',r.email)+inp('Phone',r.phone)+inp('LinkedIn',r.linkedin)
+  $('out').innerHTML='<div class=card><span class=t>'+d.mode+' · '+(d.elapsed_ms/1000).toFixed(1)+'s</span>'
+   +'<h3>Contact <button class=reveal id=rv onclick="reveal()">🔓 Reveal contact</button></h3>'
+   +'<div class=masked id=pii>'+inp('Name',r.name)+inp('Email',r.email)+inp('Phone',r.phone)+inp('LinkedIn',r.linkedin)+'</div>'
+   +'<div class=hint id=hh>🔒 Contact hidden — in production this reveals only after the recruiter unlocks (pays).</div>'
    +'<h3>Education</h3>'+inp('Degree',ed.degree)+inp('Field',ed.field)+inp('Grade',ed.grade)
    +'<h3>Skills</h3>'+chips(r.skills)+'<h3>Certifications</h3>'+chips(r.certifications)
    +'<h3>Projects</h3>'+chips(r.projects)
    +'</div><div class=card><h3>Raw JSON ('+d.mode+')</h3><pre>'+JSON.stringify(d.raw,null,2)+'</pre></div>';
  }catch(e){$('out').innerHTML='<div class=card>Error: '+e+'</div>'}
  finally{b.disabled=false;b.textContent='Parse & extract'}}
+function reveal(){$('pii').classList.add('revealed');$('rv').style.display='none';$('hh').textContent='🔓 Contact revealed (unlocked).'}
 function inp(l,v){return '<div class=f><label>'+l+'</label><input value="'+((v??'')+'').replace(/"/g,'&quot;')+'"></div>'}
 </script></body></html>"""
 
