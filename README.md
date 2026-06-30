@@ -1,34 +1,55 @@
-# Résumé Autofill demo — NuExtract-1.5-tiny on GitHub Codespaces (free, no card)
+# Résumé Intelligence Demo — Trainer & Vendor sides
 
-Hosts the **tiny** NuExtract model on a free GitHub Codespace (4-core CPU, ~2× HF Spaces),
-with a **stable public URL** and **no credit card / no tunnel**. The 2B model stays on your
-laptop. Per-résumé time on Codespaces CPU: **~45-90 s** (stable, not GPU-fast).
+A small, **fully local, no-paid-API** demo of a résumé-intelligence pipeline for a
+two-sided trainer marketplace:
 
-## One-time: put this in a GitHub repo
-Codespaces runs from a GitHub repo. Easiest:
-1. Create a new repo on GitHub (e.g. `resume-demo`), **Public or Private both work**.
-2. Copy the contents of this `codespaces/` folder into the repo root (so `app.py`,
-   `setup.sh`, `start.sh`, `requirements.txt`, and `.devcontainer/` are at the top level).
-3. Commit + push.
+- **Trainer side** (`/`) — a trainer uploads their résumé PDF → a local AI model reads it
+  and returns clean **structured JSON** (name, contact, education, experience, skills,
+  projects, certifications). Contact details can be **masked** and revealed on "unlock".
+- **Vendor side** (`/vendor`) — a recruiter pastes a **Job Description** and uploads a
+  résumé → sees the résumé **rendered with contact blurred** and the **relevant skills
+  outlined** (matched to the JD by *meaning*, not keyword lookup).
 
-## Run it
-1. On the repo page: **Code ▸ Codespaces ▸ … ▸ New with options** → pick the **4-core**
-   machine (free tier = 120 core-hours/month → ~30 h on 4-core; plenty for a demo).
-2. The Codespace builds and auto-runs `setup.sh` (installs deps + downloads llama.cpp and
-   the ~0.5 GB model). Wait for `[setup] done.` in the terminal.
-3. In the Codespace terminal:
-   ```bash
-   bash start.sh
-   ```
-   Wait for `model ready.` then `Uvicorn running on http://0.0.0.0:8000`.
-4. Open the **Ports** tab → port **8000** → right-click → **Port Visibility ▸ Public**.
-   Copy its URL: `https://<your-codespace>-8000.app.github.dev`.
-5. Open that URL → drop a résumé PDF → **Parse**. Share the link with your head.
+Everything runs on a **single free GitHub Codespace** (CPU only). No OpenAI/Gemini, no
+cloud AI bill — the model runs on-device.
 
-## Notes
-- **First parse ~45-90 s** (CPU). That's expected — it's a real generative model running
-  free on-device, no cloud AI bill.
-- The Codespace **sleeps after ~30 min idle**; reopen it and re-run `bash start.sh`.
-- **Stop it when done** (Codespaces list → ⋯ → Stop codespace) to conserve free hours.
-- Privacy: this is cloud, so it's **demo-only**; production keeps PII local.
-- To go GPU-fast later (~1-4 s), the Kaggle T4 + cloudflared variant is in `../kaggle/`.
+---
+
+## 🚀 60-second quick start (on GitHub Codespaces)
+1. Open this repo on GitHub → **`< > Code` ▸ Codespaces ▸ Create codespace** (pick the
+   **4-core** machine).
+2. Wait for it to build — it auto-runs `setup.sh` (installs everything + downloads the
+   model). You'll see `[setup] done.`
+3. In the terminal: `bash start.sh` → wait for `model ready.`
+4. **Ports** tab → port **8000** → right-click → **Port Visibility ▸ Public** → open the URL.
+5. Trainer view = that URL. Vendor view = add `/vendor` to the URL.
+
+Full, click-by-click detail is in **[docs/03_SETUP_AND_RUN.md](docs/03_SETUP_AND_RUN.md)**.
+
+---
+
+## 📚 Documentation (read in this order)
+| Doc | What it covers |
+|---|---|
+| **[docs/01_OVERVIEW.md](docs/01_OVERVIEW.md)** | What this project is, the problem it solves, the big picture |
+| **[docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md)** | How it works *internally* — components, data flow, the models, why each choice |
+| **[docs/03_SETUP_AND_RUN.md](docs/03_SETUP_AND_RUN.md)** | Clone & run, step by step (Codespaces + local) |
+| **[docs/04_CONCEPTS_EXPLAINED.md](docs/04_CONCEPTS_EXPLAINED.md)** | Every concept explained from zero (LLM, embeddings, GGUF, FastAPI, …) |
+| **[docs/05_CODE_WALKTHROUGH.md](docs/05_CODE_WALKTHROUGH.md)** | File-by-file tour of the code |
+
+---
+
+## 🧱 What's in this repo
+```
+app.py                 # the web server (FastAPI): both Trainer and Vendor views
+vendor.py              # vendor-side: render PDF, blur contact, box JD-relevant skills
+setup.sh               # one-time setup (runs automatically on Codespace create)
+start.sh               # launches the model server + the web app
+requirements.txt       # Python dependencies
+.devcontainer/         # tells Codespaces how to build the environment
+docs/                  # the documentation you're reading
+```
+
+> **Note:** this is a **demo** — it uses a tiny 0.5B model on a free CPU, so it's accurate
+> enough to learn from but slower and lighter than production. The architecture doc explains
+> how the *same design* scales up (bigger model, GPU, a real database of résumés).
